@@ -1,0 +1,201 @@
+---
+title: "BA thesis data"
+output: md_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
+```
+
+## Prep
+
+```{r}
+read.pcibex <- function(filepath, auto.colnames=TRUE, fun.col=function(col,cols){cols[cols==col]<-paste(col,"Ibex",sep=".");return(cols)}) {
+  n.cols <- max(count.fields(filepath,sep=",",quote=NULL),na.rm=TRUE)
+  if (auto.colnames){
+    cols <- c()
+    con <- file(filepath, "r")
+    while ( TRUE ) {
+      line <- readLines(con, n = 1, warn=FALSE)
+      if ( length(line) == 0) {
+        break
+      }
+      m <- regmatches(line,regexec("^# (\\d+)\\. (.+)\\.$",line))[[1]]
+      if (length(m) == 3) {
+        index <- as.numeric(m[2])
+        value <- m[3]
+        if (index < length(cols)){
+          cols <- c()
+        }
+        if (is.function(fun.col)){
+         cols <- fun.col(value,cols)
+        }
+        cols[index] <- value
+        if (index == n.cols){
+          break
+        }
+      }
+    }
+    close(con)
+    return(read.csv(filepath, comment.char="#", header=FALSE, col.names=cols))
+  }
+  else{
+    return(read.csv(filepath, comment.char="#", header=FALSE, col.names=seq(1:n.cols)))
+  }
+}
+data <- read.pcibex('https://raw.githubusercontent.com/yjunechoe/sandbox/master/data/BA_thesis_result.txt')
+```
+
+
+## tidyverse
+
+```{r}
+library(tidyverse)
+
+thesis_tbl <- as_tibble(data) %>% 
+  select(Type, PennElementType, Parameter, Value, EventTime, Item, Cond, Group, Participant_ID) %>% 
+  rename(Subject = Participant_ID) %>% 
+  filter(PennElementType %in% c('Selector', 'Timer'), Type == 'experiment') %>% 
+  select(-c("Type")) %>% 
+  arrange(Item) %>% 
+  filter(EventTime != "Never") %>% 
+  mutate(
+    Parameter = if_else(Parameter == "Start", "Start", "End"),
+    EventTime = as.numeric(EventTime)
+  ) %>% 
+  pivot_wider(names_from = Parameter, values_from = EventTime) %>% 
+  group_by(Subject, Item, Cond, Group) %>% 
+  summarize(
+    Value = Value[PennElementType == "Selector"],
+    Time = End[2] - Start[1],
+    .groups = 'drop'
+  ) %>% 
+  inner_join(
+    read_csv("https://raw.githubusercontent.com/yjunechoe/Semantic-Persistence/master/data/Key.csv"),
+    by = "Item"
+  ) %>% 
+  select(-c(QuestionTarget, Pitch)) %>% 
+  mutate(
+    Accuracy = as.numeric(Answer == Value),
+    logRT = log(Time),
+    Type = case_when(
+      str_detect(Item, "^f") ~ "Filler",
+      str_detect(Item, "^Catch") ~ "Catch",
+      TRUE ~ "Critical"),
+  )
+
+arrange(head(thesis_tbl), Item, Subject)
+```
+
+
+## data.table
+
+```{r}
+library(data.table)
+
+thesis_dt <- as.data.table(data)
+
+thesis_dt <- thesis_dt[, .(Type, PennElementType, Parameter, Value, EventTime, Item, Cond, Group, Subject = Participant_ID)]
+
+thesis_dt <- thesis_dt[(PennElementType %in% c('Selector', 'Timer') & Type == 'experiment' & EventTime != "Never"), -"Type"]
+
+thesis_dt[order(Item), Parameter := fifelse(Parameter == "Start", "Start", "End")]
+
+thesis_dt <- dcast(thesis_dt, PennElementType + Value + Item + Cond + Group + Subject ~ Parameter, value.var = "EventTime")
+
+thesis_dt <- thesis_dt[, list(Value = Value[PennElementType == "Selector"], Time = as.numeric(End)[1] - as.numeric(Start)[2]), by = c("Subject", "Item", "Cond", "Group")]
+
+thesis_dt <- merge(thesis_dt, fread("https://raw.githubusercontent.com/yjunechoe/Semantic-Persistence/master/data/Key.csv"), by = "Item")
+
+thesis_dt <- thesis_dt[, -c("QuestionTarget", "Pitch")]
+
+thesis_dt[, `:=`(
+  Accuracy = as.numeric(Answer == Value),
+  logRT = log(Time),
+  Type = fcase(
+    Item %like% "^f", "Filler",
+    Item %like% "Catch", "Catch",
+    default = "Critical")
+)]
+
+thesis_dt <- na.omit(thesis_dt, cols = "Value")
+
+arrange(head(thesis_dt), Item, Subject)
+```
+
+
+## benchmark
+
+```{r, echo = FALSE}
+keys <- as.data.frame(read_csv("https://raw.githubusercontent.com/yjunechoe/Semantic-Persistence/master/data/Key.csv"))
+
+ver_tidy <- function() {
+  as_tibble(data) %>% 
+    select(Type, PennElementType, Parameter, Value, EventTime, Item, Cond, Group, Participant_ID) %>% 
+    rename(Subject = Participant_ID) %>% 
+    filter(PennElementType %in% c('Selector', 'Timer'), Type == 'experiment') %>% 
+    select(-c("Type")) %>% 
+    arrange(Item) %>% 
+    filter(EventTime != "Never") %>% 
+    mutate(
+      Parameter = if_else(Parameter == "Start", "Start", "End"),
+      EventTime = as.numeric(EventTime)
+    ) %>% 
+    pivot_wider(names_from = Parameter, values_from = EventTime) %>% 
+    group_by(Subject, Item, Cond, Group) %>% 
+    summarize(
+      Value = Value[PennElementType == "Selector"],
+      Time = End[2] - Start[1],
+      .groups = 'drop'
+    ) %>% 
+    inner_join(
+      keys,
+      by = "Item"
+    ) %>% 
+    select(-c(QuestionTarget, Pitch)) %>% 
+    mutate(
+      Accuracy = as.numeric(Answer == Value),
+      logRT = log(Time),
+      Type = case_when(
+        str_detect(Item, "^f") ~ "Filler",
+        str_detect(Item, "^Catch") ~ "Catch",
+        TRUE ~ "Critical"),
+    )
+}
+
+ver_dt <- function() {
+  thesis_dt <- as.data.table(data)
+  
+  thesis_dt <- thesis_dt[, .(Type, PennElementType, Parameter, Value, EventTime, Item, Cond, Group, Subject = Participant_ID)]
+  
+  thesis_dt <- thesis_dt[(PennElementType %in% c('Selector', 'Timer') & Type == 'experiment' & EventTime != "Never"), -"Type"]
+  
+  thesis_dt[order(Item), Parameter := fifelse(Parameter == "Start", "Start", "End")]
+  
+  thesis_dt <- dcast(thesis_dt, PennElementType + Value + Item + Cond + Group + Subject ~ Parameter, value.var = "EventTime")
+  
+  thesis_dt <- thesis_dt[, list(Value = Value[PennElementType == "Selector"], Time = as.numeric(End)[1] - as.numeric(Start)[2]), by = c("Subject", "Item", "Cond", "Group")]
+  
+  thesis_dt <- merge(thesis_dt, keys, by = "Item")
+  
+  thesis_dt <- thesis_dt[, -c("QuestionTarget", "Pitch")]
+  
+  thesis_dt[, `:=`(
+    Accuracy = as.numeric(Answer == Value),
+    logRT = log(Time),
+    Type = fcase(
+      Item %like% "^f", "Filler",
+      Item %like% "Catch", "Catch",
+      default = "Critical")
+  )]
+  
+  thesis_dt <- na.omit(thesis_dt, cols = "Value")
+}
+
+```
+
+
+```{r}
+microbenchmark::microbenchmark(ver_tidy(), ver_dt())
+```
+
