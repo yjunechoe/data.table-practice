@@ -1,0 +1,88 @@
+---
+title: "Explicit dummy coding"
+output: md_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## tidyverse
+
+```{r}
+library(tidyverse)
+library(palmerpenguins)
+
+penguins_tidy <- penguins %>% 
+  na.omit() %>% 
+  select(species, flipper_length_mm) %>% 
+  mutate(species = factor(species)) %>% 
+  reduce(
+    levels(.$species)[-1],
+    ~ mutate(.x, !!paste0("species", .y) := as.integer(species == .y)),
+    .init = .
+  )
+
+lm(flipper_length_mm ~ species, data = penguins_tidy)
+lm(flipper_length_mm ~ species, data = na.omit(penguins))
+```
+
+
+## data.table
+
+```{r}
+library(data.table)
+
+penguins_dt <- as.data.table(penguins)
+
+penguins_dt <- na.omit(penguins_dt)
+
+penguins_dt <- penguins_dt[, .(species, flipper_length_mm)][, `:=`(species = factor(species))]
+
+treatment_lvls <- levels(penguins_dt$species)[-1]
+treatment_cols <- paste0("species", treatment_lvls)
+
+penguins_dt[, (treatment_cols) := lapply(treatment_lvls, function(x){as.integer(species == x)})]
+
+penguins_dt[]
+
+lm(flipper_length_mm ~ species, data = penguins_dt)
+lm(flipper_length_mm ~ species, data = na.omit(penguins))
+```
+
+
+## benchmark
+
+```{r}
+ver_tidy <- function() {
+  penguins %>% 
+    na.omit() %>% 
+    select(species, flipper_length_mm) %>% 
+    mutate(species = factor(species)) %>% 
+    reduce(
+      levels(.$species)[-1],
+      ~ mutate(.x, !!paste0("species", .y) := as.integer(species == .y)),
+      .init = .
+    )
+}
+
+ver_dt <- function() {
+  penguins_dt <- as.data.table(penguins)
+  
+  penguins_dt <- na.omit(penguins_dt)
+  
+  penguins_dt <- penguins_dt[, .(species, flipper_length_mm)][, `:=`(species = factor(species))]
+  
+  treatment_lvls <- levels(penguins_dt$species)[-1]
+  treatment_cols <- paste0("species", treatment_lvls)
+  
+  penguins_dt[, (treatment_cols) := lapply(treatment_lvls, function(x){as.integer(species == x)})] 
+}
+
+```
+
+
+```{r}
+microbenchmark::microbenchmark(ver_tidy(), ver_dt())
+```
+
