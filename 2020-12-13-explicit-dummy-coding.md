@@ -2,18 +2,6 @@ tidyverse
 ---------
 
     library(tidyverse)
-
-    ## -- Attaching packages --------------------------------------- tidyverse 1.3.0 --
-
-    ## v ggplot2 3.3.3     v purrr   0.3.4
-    ## v tibble  3.0.4     v dplyr   1.0.2
-    ## v tidyr   1.1.2     v stringr 1.4.0
-    ## v readr   1.4.0     v forcats 0.5.0
-
-    ## -- Conflicts ------------------------------------------ tidyverse_conflicts() --
-    ## x dplyr::filter() masks stats::filter()
-    ## x dplyr::lag()    masks stats::lag()
-
     library(palmerpenguins)
 
     penguins_tidy <- penguins %>% 
@@ -26,41 +14,27 @@ tidyverse
         .init = .
       )
 
-    lm(flipper_length_mm ~ species, data = penguins_tidy)
+    penguins_tidy
 
-    ## 
-    ## Call:
-    ## lm(formula = flipper_length_mm ~ species, data = penguins_tidy)
-    ## 
-    ## Coefficients:
-    ##      (Intercept)  speciesChinstrap     speciesGentoo  
-    ##          190.103             5.721            27.133
-
-    lm(flipper_length_mm ~ species, data = na.omit(penguins))
-
-    ## 
-    ## Call:
-    ## lm(formula = flipper_length_mm ~ species, data = na.omit(penguins))
-    ## 
-    ## Coefficients:
-    ##      (Intercept)  speciesChinstrap     speciesGentoo  
-    ##          190.103             5.721            27.133
+    ## # A tibble: 333 x 4
+    ##    species flipper_length_mm speciesChinstrap speciesGentoo
+    ##    <fct>               <int>            <int>         <int>
+    ##  1 Adelie                181                0             0
+    ##  2 Adelie                186                0             0
+    ##  3 Adelie                195                0             0
+    ##  4 Adelie                193                0             0
+    ##  5 Adelie                190                0             0
+    ##  6 Adelie                181                0             0
+    ##  7 Adelie                195                0             0
+    ##  8 Adelie                182                0             0
+    ##  9 Adelie                191                0             0
+    ## 10 Adelie                198                0             0
+    ## # ... with 323 more rows
 
 data.table
 ----------
 
     library(data.table)
-
-    ## 
-    ## Attaching package: 'data.table'
-
-    ## The following objects are masked from 'package:dplyr':
-    ## 
-    ##     between, first, last
-
-    ## The following object is masked from 'package:purrr':
-    ## 
-    ##     transpose
 
     penguins_dt <- as.data.table(penguins)
 
@@ -88,57 +62,12 @@ data.table
     ## 332: Chinstrap               210                1             0
     ## 333: Chinstrap               198                1             0
 
-    lm(flipper_length_mm ~ species, data = penguins_dt)
-
-    ## 
-    ## Call:
-    ## lm(formula = flipper_length_mm ~ species, data = penguins_dt)
-    ## 
-    ## Coefficients:
-    ##      (Intercept)  speciesChinstrap     speciesGentoo  
-    ##          190.103             5.721            27.133
-
-    lm(flipper_length_mm ~ species, data = na.omit(penguins))
-
-    ## 
-    ## Call:
-    ## lm(formula = flipper_length_mm ~ species, data = na.omit(penguins))
-    ## 
-    ## Coefficients:
-    ##      (Intercept)  speciesChinstrap     speciesGentoo  
-    ##          190.103             5.721            27.133
-
 benchmark
 ---------
-
-    ver_tidy <- function() {
-      penguins %>% 
-        na.omit() %>% 
-        select(species, flipper_length_mm) %>% 
-        mutate(species = factor(species)) %>% 
-        reduce(
-          levels(.$species)[-1],
-          ~ mutate(.x, !!paste0("species", .y) := as.integer(species == .y)),
-          .init = .
-        )
-    }
-
-    ver_dt <- function() {
-      penguins_dt <- as.data.table(penguins)
-      
-      penguins_dt <- na.omit(penguins_dt)
-      
-      penguins_dt <- penguins_dt[, .(species, flipper_length_mm)][, `:=`(species = factor(species))]
-      
-      treatment_lvls <- levels(penguins_dt$species)[-1]
-      treatment_cols <- paste0("species", treatment_lvls)
-      
-      penguins_dt[, (treatment_cols) := lapply(treatment_lvls, function(x){as.integer(species == x)})] 
-    }
 
     microbenchmark::microbenchmark(ver_tidy(), ver_dt())
 
     ## Unit: milliseconds
     ##        expr    min       lq      mean   median       uq     max neval cld
-    ##  ver_tidy() 8.0959 10.38315 13.871701 12.03090 16.48270 31.7803   100   b
-    ##    ver_dt() 1.3551  1.77250  2.598675  2.07085  2.62895 23.2842   100  a
+    ##  ver_tidy() 9.9916 12.83540 18.137178 16.54765 21.76255 49.5573   100   b
+    ##    ver_dt() 1.6799  2.13705  3.476468  2.43180  3.50295 24.5549   100  a

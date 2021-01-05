@@ -4,7 +4,7 @@ output: md_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, message = FALSE)
 ```
 
 ## tidyverse
@@ -23,8 +23,7 @@ penguins_tidy <- penguins %>%
     .init = .
   )
 
-lm(flipper_length_mm ~ species, data = penguins_tidy)
-lm(flipper_length_mm ~ species, data = na.omit(penguins))
+penguins_tidy
 ```
 
 
@@ -45,15 +44,12 @@ treatment_cols <- paste0("species", treatment_lvls)
 penguins_dt[, (treatment_cols) := lapply(treatment_lvls, function(x){as.integer(species == x)})]
 
 penguins_dt[]
-
-lm(flipper_length_mm ~ species, data = penguins_dt)
-lm(flipper_length_mm ~ species, data = na.omit(penguins))
 ```
 
 
 ## benchmark
 
-```{r}
+```{r, echo = FALSE}
 ver_tidy <- function() {
   penguins %>% 
     na.omit() %>% 
